@@ -237,12 +237,17 @@
 
     /* ─── DIREITA: selo (capa girando) e agulha ─── */
     .deck { position: relative; }
-    .label {
+    /* invólucro do selo: recebe a animação de virada (o .label usa transform para girar a 33⅓) */
+    .label-flip {
       position: absolute;
       width: calc(var(--label-r) * 2);
       height: calc(var(--label-r) * 2);
       right: 0;
       top: 0;
+    }
+    .label {
+      position: absolute;
+      inset: 0;
       border-radius: 50%;
       overflow: hidden;
       background: #15151b;
@@ -291,6 +296,21 @@
       box-shadow: 0 0 0 0.3vh rgba(255, 255, 255, 0.25);
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── VIRADA DO DISCO: gira 180° no eixo horizontal (como virar o disco na mão).
+       Dividido em duas metades para nenhuma face aparecer espelhada; o conteúdo troca no meio. ─── */
+    @keyframes discFlip {
+      0%     { transform: perspective(160vh) rotateX(0deg)   scale(1); }
+      50%    { transform: perspective(160vh) rotateX(90deg)  scale(1.05); }
+      50.01% { transform: perspective(160vh) rotateX(-90deg) scale(1.05); }
+      100%   { transform: perspective(160vh) rotateX(0deg)   scale(1); }
+    }
+    .flipping { animation: discFlip 1.4s cubic-bezier(0.45, 0, 0.25, 1) both; }
+
+    /* agulha levantada durante a virada / troca de disco */
+    .needle svg, .needle-time { transition: transform 0.6s cubic-bezier(0.22, 0.8, 0.24, 1), opacity 0.5s ease; }
+    body.needle-lifted .needle svg,
+    body.needle-lifted .needle-time { transform: translateX(16vw) rotate(-6deg); opacity: 0; }
 
     .needle {
       position: absolute;
@@ -383,7 +403,7 @@
   <div id="ambient" class="ambient"></div>
   <div class="shade"></div>
   <div class="disc-layer">
-    <div class="disc">
+    <div id="disc" class="disc">
       <div class="lead-in"></div>
       <div id="played" class="played"></div>
       <div class="runout"></div>
@@ -409,7 +429,7 @@
     </main>
 
     <section class="deck">
-      <div id="label" class="label"><div class="art">♪</div></div>
+      <div id="labelFlip" class="label-flip"><div id="label" class="label"><div class="art">♪</div></div></div>
       <div id="needle" class="needle">
         <div class="needle-time"><span id="elapsed" class="elapsed">0:00</span><span id="dur" class="dur"></span></div>
         <svg viewBox="0 0 120 40" preserveAspectRatio="none" aria-hidden="true">
@@ -602,20 +622,51 @@
     const HAS_LATIN = /\p{Script=Latin}/u;
     function isLatin(text) { return HAS_LATIN.test(text) && LATIN_ONLY.test(text); }
 
-    function renderTrack(track, lines) {
-      track = track || {};
-      hasTrack = true;
-      document.body.classList.add('has-track');
-      el('title').textContent = track.title || 'Música identificada';
-      el('artist').textContent = track.artist || '';
-      el('album').textContent = track.album || '';
+    // ─── VIRADA / TROCA DE DISCO: levanta a agulha, vira o disco, troca o conteúdo no meio e desce a agulha ───
+    const FLIP_MS = 1400;
+    const LIFT_MS = 600;
+    let flipBusy = false;
+    let needleLifted = false;
+    let liftedForTitle = null;   // a agulha só desce quando chegar uma música diferente desta
+    let currentCoverUrl = null;
+    let lastTrackTitle = null;
+    let lastArtistKey = '';
+    let lastAlbumKey = '';
 
+    const norm = (s) => (s || '').toString().trim().toLowerCase();
+
+    function liftNeedle() {
+      needleLifted = true;
+      liftedForTitle = lastTrackTitle;
+      document.body.classList.add('needle-lifted');
+    }
+    function dropNeedle(delay) {
+      setTimeout(() => {
+        if (flipBusy) { dropNeedle(250); return; }
+        needleLifted = false;
+        liftedForTitle = null;
+        document.body.classList.remove('needle-lifted');
+      }, delay || 0);
+    }
+    function playFlip(onMidpoint) {
+      if (flipBusy) { if (onMidpoint) onMidpoint(); return; }
+      flipBusy = true;
+      if (!needleLifted) liftNeedle();
+      setTimeout(() => {
+        const targets = [el('disc'), el('labelFlip')];
+        targets.forEach((t) => { t.classList.remove('flipping'); void t.offsetWidth; t.classList.add('flipping'); });
+        setTimeout(() => { if (onMidpoint) onMidpoint(); }, FLIP_MS / 2);
+        setTimeout(() => { targets.forEach((t) => t.classList.remove('flipping')); flipBusy = false; }, FLIP_MS);
+      }, LIFT_MS);
+    }
+
+    // Capa no selo do disco (girando) e desfocada no fundo, com a letra do lado
+    function applyCover(track) {
       currentSide = (typeof track.side === 'string') ? track.side.trim().toUpperCase().slice(0, 2) : '';
-
-      // Capa no selo do disco (girando) e desfocada no fundo
       const label = el('label');
       const ambient = el('ambient');
       const url = safeUrl(track.coverUrl);
+      currentCoverUrl = url;
       if (url) {
         label.textContent = '';
         const img = document.createElement('img');
@@ -631,6 +682,60 @@
         setLabelFallback();
         ambient.classList.remove('visible');
       }
+    }
+
+    // Troca só a letra do lado no selo (virada do disco: mesma capa, outro lado)
+    function setSideLetter(side) {
+      currentSide = (side || '').toString().trim().toUpperCase().slice(0, 2);
+      const old = el('label').querySelector('.side-letter');
+      if (old) old.remove();
+      appendSideLetter();
+      if (currentSide && currentCoverUrl) applySideLetterContrast(currentCoverUrl);
+    }
+
+    // Pacote "side_flip" do celular: o usuário virou o disco (ou o microfone ouviu o novo lado)
+    function onSideFlip(data) {
+      const nextSide = (data && typeof data.nextSide === 'string') ? data.nextSide : '';
+      showNotice('');
+      playFlip(() => { if (nextSide) setSideLetter(nextSide); });
+    }
+
+    function renderTrack(track, lines) {
+      track = track || {};
+      const title = track.title || 'Música identificada';
+      const artistKey = norm(track.artist);
+      const albumKey = norm(track.album);
+      const isNewTrack = lastTrackTitle !== null && norm(title) !== norm(lastTrackTitle);
+      // Outro artista, ou outro disco do mesmo artista: o disco "troca" com a mesma animação de virada
+      const isNewDisc = isNewTrack && (
+        artistKey !== lastArtistKey || (albumKey && lastAlbumKey && albumKey !== lastAlbumKey)
+      );
+
+      hasTrack = true;
+      document.body.classList.add('has-track');
+      el('title').textContent = title;
+      el('artist').textContent = track.artist || '';
+      el('album').textContent = track.album || '';
+
+      if (isNewDisc && !needleLifted) {
+        playFlip(() => applyCover(track));
+        dropNeedle(LIFT_MS + FLIP_MS + 300);
+      } else if (needleLifted && isNewTrack) {
+        // Depois de uma virada: a agulha desce no sulco de fora quando o novo lado começa
+        if (flipBusy) {
+          const pending = track;
+          setTimeout(() => applyCover(pending), FLIP_MS / 2);
+        } else {
+          applyCover(track);
+        }
+        dropNeedle(flipBusy ? FLIP_MS : 400);
+      } else if (!flipBusy) {
+        applyCover(track);
+      }
+
+      lastTrackTitle = title;
+      lastArtistKey = artistKey;
+      lastAlbumKey = albumKey || lastAlbumKey;
 
       lyrics = Array.isArray(lines) ? lines.filter(l => typeof l.ms === 'number') : [];
       const container = el('lines');
@@ -753,6 +858,16 @@
     }
 
     function resetView() {
+      flipBusy = false;
+      needleLifted = false;
+      liftedForTitle = null;
+      lastTrackTitle = null;
+      lastArtistKey = '';
+      lastAlbumKey = '';
+      currentCoverUrl = null;
+      document.body.classList.remove('needle-lifted');
+      el('disc').classList.remove('flipping');
+      el('labelFlip').classList.remove('flipping');
       hasTrack = false;
       lyrics = [];
       lineEls = [];
@@ -785,6 +900,8 @@
         renderTrack(data.track, data.lyrics || []);
       } else if (data.type === 'sync_update') {
         updateSync(data);
+      } else if (data.type === 'side_flip') {
+        onSideFlip(data);
       } else if (data.type === 'stop') {
         resetView();
       } else if (data.type === 'connect_ws' && data.wsUrl && location.protocol === 'http:') {
