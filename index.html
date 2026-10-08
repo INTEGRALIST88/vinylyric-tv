@@ -247,6 +247,90 @@
       font-size: 15px;
       color: rgba(255, 255, 255, 0.3);
     }
+
+    /* ─── CELULAR / TELAS EM PÉ: EMPILHA CAPA EM CIMA E LETRAS EMBAIXO ─── */
+    @media (max-width: 820px), (orientation: portrait) {
+      html, body {
+        height: 100dvh;
+      }
+
+      .main-container {
+        flex-direction: column;
+        height: 100dvh;
+      }
+
+      .left-panel {
+        width: 100%;
+        height: auto;
+        flex-shrink: 0;
+        padding: 20px 16px 16px;
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .vinyl-wrapper,
+      .vinyl-disc,
+      .album-cover {
+        width: min(42vw, 180px);
+        height: min(42vw, 180px);
+      }
+
+      .vinyl-wrapper {
+        margin-bottom: 12px;
+        margin-right: 20px;
+      }
+
+      .vinyl-disc {
+        right: -20px;
+      }
+
+      .vinyl-disc::before {
+        width: 50px;
+        height: 50px;
+      }
+
+      .album-cover {
+        border-radius: 12px;
+      }
+
+      .cover-fallback { font-size: 48px; }
+      .track-title { font-size: 20px; margin-top: 4px; }
+      .track-artist { font-size: 16px; }
+      .track-album { font-size: 13px; }
+
+      .status-badge {
+        margin-top: 12px;
+        padding: 4px 12px;
+        font-size: 11px;
+      }
+
+      .right-panel {
+        width: 100%;
+        height: auto;
+        flex: 1;
+        min-height: 0;
+      }
+
+      .lyrics-scroll-container {
+        padding: 25vh 12px;
+      }
+
+      .lyric-line {
+        font-size: 20px;
+        padding: 8px 12px;
+        margin: 4px 0;
+      }
+
+      .lyric-line.active {
+        font-size: 26px;
+        transform: scale(1.03);
+      }
+
+      .empty-state { padding: 0 16px; text-align: center; }
+      .empty-state-icon { font-size: 40px; }
+      .empty-state-title { font-size: 20px; }
+      .empty-state-desc { font-size: 13px; }
+    }
   </style>
 </head>
 <body>
