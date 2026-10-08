@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VinyLyric TV</title>
+  <title>VyniLyric TV</title>
   <!-- Google Cast Application Framework (CAF) Receiver SDK v3 -->
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -397,6 +397,7 @@
     .notice.visible { opacity: 1; transform: translate(-50%, 0); }
 
     body.paused .lines { opacity: 0.55; }
+    body.awaiting-needle .lines { opacity: 1; }
   </style>
 </head>
 <body>
@@ -413,7 +414,7 @@
 
   <div class="stage">
     <aside class="meta">
-      <div id="title" class="title">VinyLyric</div>
+      <div id="title" class="title">VyniLyric</div>
       <div id="artist" class="artist">Pronto para tocar</div>
       <div id="album" class="album"></div>
       <div id="next" class="next"><div class="caption">A seguir</div><div id="nextName" class="name"></div></div>
@@ -844,7 +845,11 @@
       } else {
         pill.classList.remove('visible');
       }
-      showNotice(status === 'waitingEndOfSide' ? (data.statusMessage || 'Vire o disco') : (paused ? 'Pausado' : ''));
+      // Disco virado com a 1ª faixa do novo lado já na tela: letra parada em 0:00 até a agulha tocar
+      document.body.classList.toggle('awaiting-needle', !!data.awaitingNeedle);
+      showNotice(status === 'waitingEndOfSide' ? (data.statusMessage || 'Vire o disco')
+        : data.awaitingNeedle ? 'Aguardando a agulha'
+        : (paused ? 'Pausado' : ''));
     }
 
     function showNotice(text) {
@@ -876,7 +881,7 @@
       paused = true;
       document.body.classList.remove('has-track', 'playing', 'paused');
       el('lines').textContent = '';
-      el('title').textContent = 'VinyLyric';
+      el('title').textContent = 'VyniLyric';
       el('artist').textContent = 'Pronto para tocar';
       el('album').textContent = '';
       el('dur').textContent = '';
@@ -967,7 +972,7 @@
         options.skipPlayersLoad = true;
         castContext.start(options);
       } catch (e) {
-        console.warn('[VinyLyric TV] Fora do runtime do Cast:', e);
+        console.warn('[VyniLyric TV] Fora do runtime do Cast:', e);
         castContext = null;
       }
     }
@@ -998,7 +1003,7 @@
         'Fim da demonstração'
       ];
       renderTrack(
-        { title: 'Faixa de Demonstração', artist: 'VinyLyric', album: 'Layout da TV', durationMs: 198000, coverUrl: null, side: 'A' },
+        { title: 'Faixa de Demonstração', artist: 'VyniLyric', album: 'Layout da TV', durationMs: 198000, coverUrl: null, side: 'A' },
         demoLines.map((text, i) => ({ ms: 3000 + i * 4000, text }))
       );
       let demoPos = 0;
