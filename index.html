@@ -247,7 +247,7 @@
       overflow: hidden;
       background: #15151b;
       box-shadow: 0 0 0 0.35vh rgba(0, 0, 0, 0.6), 0 1vh 3vh rgba(0, 0, 0, 0.6);
-      animation: spin 1.333s linear infinite; /* 45 RPM (EP) */
+      animation: spin 1.8s linear infinite; /* 33⅓ RPM: mais lento, a capa fica fácil de identificar */
       animation-play-state: paused;
     }
     body.playing .label { animation-play-state: running; }
@@ -262,8 +262,10 @@
       font-size: var(--line-size);
       font-weight: 800;
       text-transform: uppercase;
-      color: #ffffff;
-      text-shadow: 0 0 0.6vh rgba(0, 0, 0, 0.9), 0 0 2vh rgba(0, 0, 0, 0.6);
+      /* cor escolhida a partir da capa (ver applySideLetterContrast); padrão: branco com sombra */
+      color: var(--side-color, #ffffff);
+      text-shadow: 0 0 0.6vh var(--side-shadow, rgba(0, 0, 0, 0.9)), 0 0 2vh var(--side-shadow, rgba(0, 0, 0, 0.6));
+      transition: color 0.6s ease;
       pointer-events: none;
     }
     .label .art {
@@ -514,7 +516,85 @@
       art.className = 'art';
       art.textContent = '♪';
       label.appendChild(art);
+      resetSideLetterColor();
       appendSideLetter();
+    }
+
+    // ─── COR DA LETRA DO LADO: sempre em contraste com a capa ───
+    // A letra gira junto com a capa, então fica sempre sobre o mesmo trecho da imagem: amostra a cor média
+    // desse trecho e escolhe o tom complementar com contraste de leitura (WCAG >= 4.5:1).
+    function relativeLuminance(r, g, b) {
+      const ch = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+      return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+    }
+    function contrastRatio(l1, l2) {
+      const [a, b] = l1 > l2 ? [l1, l2] : [l2, l1];
+      return (a + 0.05) / (b + 0.05);
+    }
+    function hslToRgb(h, s, l) {
+      const k = (n) => (n + h / 30) % 12;
+      const a = s * Math.min(l, 1 - l);
+      const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+      return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+    }
+    function rgbToHue(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+      if (d === 0) return 0;
+      let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (h * 60 + 360) % 360;
+    }
+    function pickContrastingColor(r, g, b) {
+      const bgLum = relativeLuminance(r, g, b);
+      const hue = (rgbToHue(r, g, b) + 180) % 360;   // tom complementar
+      const darkBg = bgLum < 0.35;
+      // parte de um tom vivo e caminha em claridade até atingir o contraste mínimo
+      for (let i = 0; i <= 10; i++) {
+        const l = darkBg ? 0.62 + i * 0.035 : 0.38 - i * 0.035;
+        const [cr, cg, cb] = hslToRgb(hue, 0.85, Math.min(0.97, Math.max(0.03, l)));
+        if (contrastRatio(relativeLuminance(cr, cg, cb), bgLum) >= 4.5) {
+          return { color: 'rgb(' + cr + ',' + cg + ',' + cb + ')', shadow: darkBg ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.55)' };
+        }
+      }
+      return darkBg
+        ? { color: '#ffffff', shadow: 'rgba(0,0,0,0.85)' }
+        : { color: '#0b0b0e', shadow: 'rgba(255,255,255,0.6)' };
+    }
+    function resetSideLetterColor() {
+      const label = el('label');
+      label.style.removeProperty('--side-color');
+      label.style.removeProperty('--side-shadow');
+    }
+    function applySideLetterContrast(url) {
+      resetSideLetterColor();
+      const probe = new Image();
+      probe.crossOrigin = 'anonymous';
+      probe.onload = () => {
+        try {
+          // Região da capa sob a letra: lado esquerdo do selo (9%–19% da largura, faixa central da altura),
+          // considerando o recorte quadrado central (object-fit: cover) e a ampliação de 1.18 do selo.
+          const side = Math.min(probe.naturalWidth, probe.naturalHeight);
+          const ox = (probe.naturalWidth - side) / 2, oy = (probe.naturalHeight - side) / 2;
+          const toImg = (p) => 0.5 + (p - 0.5) / 1.18;
+          const sx = ox + toImg(0.09) * side, ex = ox + toImg(0.19) * side;
+          const sy = oy + toImg(0.42) * side, ey = oy + toImg(0.58) * side;
+          const canvas = document.createElement('canvas');
+          canvas.width = 8; canvas.height = 8;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(probe, sx, sy, ex - sx, ey - sy, 0, 0, 8, 8);
+          const px = ctx.getImageData(0, 0, 8, 8).data;
+          let r = 0, g = 0, b = 0;
+          for (let i = 0; i < px.length; i += 4) { r += px[i]; g += px[i + 1]; b += px[i + 2]; }
+          const n = px.length / 4;
+          const pick = pickContrastingColor(r / n, g / n, b / n);
+          const label = el('label');
+          label.style.setProperty('--side-color', pick.color);
+          label.style.setProperty('--side-shadow', pick.shadow);
+        } catch (_) {
+          resetSideLetterColor(); // imagem sem CORS: mantém branco com sombra
+        }
+      };
+      probe.src = url;
     }
 
     // Caixa alta apenas para texto em alfabeto latino (acentos, números e pontuação incluídos)
@@ -544,6 +624,7 @@
         img.src = url;
         label.appendChild(img);
         appendSideLetter();
+        if (currentSide) applySideLetterContrast(url);
         ambient.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
         ambient.classList.add('visible');
       } else {
